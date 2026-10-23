@@ -1,0 +1,300 @@
+openapi: 3.1.0
+info:
+  title: WikiBlank REST API
+  version: 1.0.0
+  description: |
+    API del gioco WikiBlank (impiccato su articoli enciclopedici).
+    L'API è stateless: dopo il login il client invia il JWT nell'header `Authorization: Bearer <token>`.
+    Il titolo e il testo completo di una partita in corso non vengono mai inviati al client.
+servers:
+  - url: http://localhost:3000
+tags:
+  - name: users
+  - name: games
+  - name: rankings
+paths:
+  /users:
+    post:
+      tags: [users]
+      summary: Registra un nuovo utente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '201':
+          description: Utente creato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /login:
+    post:
+      tags: [users]
+      summary: Autentica un utente ed emette un JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '200':
+          description: Autenticazione riuscita
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string, description: JWT firmato (HS256) }
+                  username: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /games:
+    get:
+      tags: [games]
+      summary: Elenco paginato di partite
+      description: |
+        Senza filtri restituisce le partite concluse (pubbliche).
+        Con `status=in-progress` restituisce solo le partite in corso dell'utente autenticato.
+      security: [{}, { bearerAuth: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [concluded, won, abandoned, in-progress], default: concluded }
+        - name: player
+          in: query
+          description: Filtra per username del giocatore
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        '200':
+          description: Pagina di partite
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/GameSummary' }
+                  page: { type: integer }
+                  size: { type: integer }
+                  total: { type: integer }
+                  totalPages: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [games]
+      summary: Avvia una nuova partita con un articolo casuale
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201':
+          description: Partita creata
+          headers:
+            Location: { schema: { type: string }, description: URI della nuova partita }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Game' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { description: Troppe richieste }
+        '502': { description: Impossibile recuperare un articolo dal servizio esterno }
+  /games/{id}:
+    get:
+      tags: [games]
+      summary: Dettagli di una partita
+      description: Pubblico per le partite concluse; solo per il proprietario se la partita è in corso.
+      security: [{}, { bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/GameId' }]
+      responses:
+        '200':
+          description: Partita con testo oscurato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Game' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /games/{id}/word-guesses:
+    post:
+      tags: [games]
+      summary: Propone una parola (viene rivelata in tutte le sue occorrenze)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/GameId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [word]
+              properties:
+                word: { type: string, description: Una sola parola (lettere o cifre, max 40 caratteri) }
+      responses:
+        '201':
+          description: Tentativo registrato
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  word: { type: string, description: Parola normalizzata }
+                  occurrences: { type: integer }
+                  game: { $ref: '#/components/schemas/Game' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /games/{id}/title-guesses:
+    post:
+      tags: [games]
+      summary: Propone il titolo dell'articolo (se corretto la partita è vinta)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/GameId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, maxLength: 200 }
+      responses:
+        '201':
+          description: Tentativo registrato
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  correct: { type: boolean }
+                  game: { $ref: '#/components/schemas/Game' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /games/{id}/abandon:
+    post:
+      tags: [games]
+      summary: Abbandona la partita (il titolo viene rivelato)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/GameId' }]
+      responses:
+        '200':
+          description: Partita abbandonata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Game' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /rankings:
+    get:
+      tags: [rankings]
+      summary: Classifica dei giocatori
+      parameters:
+        - name: sort
+          in: query
+          schema: { type: string, enum: [average-time, won-games], default: average-time }
+      responses:
+        '200':
+          description: Classifica (max 50 giocatori)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        rank: { type: integer }
+                        username: { type: string }
+                        wonGames: { type: integer }
+                        averageTimeSeconds: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    GameId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+  responses:
+    BadRequest:
+      description: Richiesta non valida
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: Autenticazione mancante o credenziali/token non validi
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: Operazione non consentita all'utente autenticato
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Risorsa non trovata
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: Conflitto con lo stato corrente della risorsa
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+  schemas:
+    Error:
+      type: object
+      properties:
+        code: { type: integer }
+        description: { type: string }
+    Credentials:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, pattern: '^[A-Za-z0-9_]{3,20}$' }
+        password: { type: string, minLength: 8, maxLength: 72 }
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        username: { type: string }
+    GameSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        player: { type: string }
+        status: { type: string, enum: [in-progress, won, abandoned] }
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: [string, 'null'], format: date-time }
+        elapsedSeconds: { type: integer }
+        durationSeconds: { type: [integer, 'null'] }
+        attempts: { type: integer }
+        wordAttempts: { type: integer }
+        titleAttempts: { type: integer }
+        title: { type: [string, 'null'], description: Presente solo a partita conclusa }
+    Game:
+      allOf:
+        - $ref: '#/components/schemas/GameSummary'
+        - type: object
+          properties:
+            guessedWords: { type: array, items: { type: string } }
+            titleWordLengths: { type: [array, 'null'], items: { type: integer } }
+            text:
+              type: array
+              description: Testo oscurato; le parole nascoste hanno solo la lunghezza
+              items:
+                type: object
+                properties:
+                  type: { type: string, enum: [text, word] }
+                  text: { type: string }
+                  revealed: { type: boolean }
+                  length: { type: integer }
