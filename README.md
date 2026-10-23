@@ -30,14 +30,13 @@ Il testo completo e il titolo di una partita **in corso non lasciano mai il serv
 
 ## Avvio dell'applicazione
 
-Requisiti: **Node.js ≥ 20** (sviluppato con Node 22) e npm.
+Requisiti: **Node.js ≥ 20** (sviluppato con Node 22.14.0) e npm.
 
 ### 1. Back-end (REST API)
 
 ```bash
 cd backend
 npm install
-cp .env.example .env        # facoltativo; in sviluppo, senza .env, il JWT_SECRET è casuale
 npm start                   # http://localhost:3000
 ```
 
@@ -93,7 +92,7 @@ npm run e2e:report              # apre il report HTML
 ### Unit test
 
 ```bash
-cd frontend && npm test         # unit test Angular (Vitest + TestBed): 31 test
+cd frontend && npm test         # unit test Angular : 31 test
 cd backend  && npm test         # unit test del motore di gioco e del provider Wikipedia con fetch simulato (node:test): 13 test
 ```
 
@@ -154,7 +153,6 @@ Codici di stato usati: `200`, `201` (con header `Location` alla creazione di una
 - **SQL injection**: nessuna query SQL costruita a mano; tutto passa dall'ORM Sequelize con query parametrizzate.
 - **XSS**: Angular esegue l'escaping di ogni valore interpolato; non si usa `bypassSecurityTrust*`, `innerHTML` né `eval`. Il testo degli articoli è reso solo tramite interpolazione.
 - **CORS**: solo le origini del front-end (`FRONTEND_ORIGIN`), non `*`. Intestazioni di sicurezza con **helmet**.
-- **Rate limiting** su login (brute-force) e sulla creazione di partite (ogni partita genera una richiesta verso Wikipedia). Limite di 10 kB sul corpo delle richieste.
 - **Nessuna fuga di informazioni di gioco**: titolo e testo completo di una partita in corso restano sul server.
 - Errori `5xx` loggati sul server ma restituiti al client con un messaggio generico.
 
